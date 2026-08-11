@@ -1,22 +1,21 @@
 import numpy as np
-from coco_hothand.util.stats_util.weighted_se import weighted_se
+from coldhand.util.stats_util.weighted_se import weighted_se
 import pandas as pd
 from itertools import product
 from scipy.stats import t
-from scipy.special import logit, expit
+from scipy.special import expit
 
-def correct_dv(df, dv, coefs, correct_fe=True, correct_re=True, use_marginal_means=True, is_logit=False, compute_precise_se=False):
+def correct_dv(df, dv, coefs, correct_fe=True, correct_re=True, use_marginal_means=True, is_logit=False,
+               consider_covariance=False):
 
     if is_logit:
         df[f'{dv}_cor'] = -coefs.loc['(Intercept)', 'Estimate']
-        # df.loc[~df[dv], f'{dv}_cor'] = logit(1e-16)
-        # df.loc[df[dv], f'{dv}_cor'] = logit(1 - 1e-16)
     else:
         df[f'{dv}_cor'] = df[dv]
     if correct_fe:
         for k, v in zip(coefs.Estimate.index, coefs.Estimate):
             if k not in ['(Intercept)', 'prev_wonTRUE', 'C(prev_cond)Lost', 'C(prev_cond)Won']:
-                if k.startswith('C('):  # e.g. C(game_type)3
+                if k.startswith('C('):  # e.g. C(game_type)
                     factor, level = k[2:].split(')')[0], k.split(')')[1]
                     if level == 'TRUE':
                         df[f'{dv}_cor'] -= v * df[factor]
@@ -55,24 +54,6 @@ def correct_dv(df, dv, coefs, correct_fe=True, correct_re=True, use_marginal_mea
         # Unfortunately, np.average takes axis as the second argument in newer Numpy versions, so
         # we need to provide a lambda intermediary
         weighted_avg = lambda values, weights: np.average(values, weights=weights)
-        # This is a double-weighted average:
-        # 1) weigh within each combination by subject weights (#ngames per subject)
-        # 2) weigh across combinations by combination weights (#ngames per combination)
-        # if 'prev_wonTRUE' in coefs.Estimate.index:
-        #     marginal_means = [weighted_avg(*zip(*[[np.average((gb := df[df.eval(f'{combo_string} & prev_won == {cond}')].groupby('subject')[dv]).mean(), weights=gb.count()), len(gb)] for combo_string in combo_strings])) for cond in (False, True)]
-        #     if is_logit:
-        #         df.loc[~df.prev_won, f'{dv}_cor'] = df[~df.prev_won][f'{dv}_cor'] - logit(expit(df[~df.prev_won][f'{dv}_cor']).mean()) + logit(marginal_means[0])
-        #         df.loc[df.prev_won, f'{dv}_cor'] = df[df.prev_won][f'{dv}_cor'] - logit(expit(df[df.prev_won][f'{dv}_cor']).mean()) + logit(marginal_means[1])
-        #     else:
-        #         df.loc[~df.prev_won, f'{dv}_cor'] = df[~df.prev_won][f'{dv}_cor'] - df[~df.prev_won][f'{dv}_cor'].mean() + marginal_means[0]
-        #         df.loc[df.prev_won, f'{dv}_cor'] = df[df.prev_won][f'{dv}_cor'] - df[df.prev_won][f'{dv}_cor'].mean() + marginal_means[1]
-        #     marginal_mean = weighted_avg(*zip(*[[np.average((gb := df[df.eval(combo_string)].groupby('subject')[dv]).mean(), weights=gb.count()), len(gb)] for combo_string in combo_strings]))
-        #     df[f'{dv}_cor'] += marginal_mean - df[f'{dv}_cor'].mean()
-        # else:
-        #     marginal_means = [weighted_avg(*zip(*[[np.average((gb := df[df.eval(f'{combo_string} & prev_cond == "{cond}"')].groupby('subject')[dv]).mean(), weights=gb.count()), len(gb)] for combo_string in combo_strings])) for cond in ('Fold', 'Lost', 'Won')]
-        #     df.loc[df.prev_cond == 'Fold', f'{dv}_cor'] = df[df.prev_cond == 'Fold'][f'{dv}_cor'] - df[df.prev_cond == 'Fold'][f'{dv}_cor'].mean() + marginal_means[0]
-        #     df.loc[df.prev_cond == 'Lost', f'{dv}_cor'] = df[df.prev_cond == 'Lost'][f'{dv}_cor'] - df[df.prev_cond == 'Lost'][f'{dv}_cor'].mean() + marginal_means[1]
-        #     df.loc[df.prev_cond == 'Won', f'{dv}_cor'] = df[df.prev_cond == 'Won'][f'{dv}_cor'] - df[df.prev_cond == 'Won'][f'{dv}_cor'].mean() + marginal_means[2]
         marginal_mean = weighted_avg(*zip(*[[np.average((gb := df[df.eval(combo_string, engine='python')].groupby('subject')[dv]).mean(), weights=gb.count()), len(gb)] for combo_string in combo_strings]))
         df[f'{dv}_cor'] += marginal_mean - df[f'{dv}_cor'].mean()
 
@@ -89,12 +70,10 @@ def correct_dv(df, dv, coefs, correct_fe=True, correct_re=True, use_marginal_mea
             # Compute p-values
             m_prevlost, m_prevwon = np.average(m_prevlost_m, weights=m_prevlost_c), np.average(m_prevwon_m, weights=m_prevwon_c)
             m_diff = m_prevwon - m_prevlost
-            if compute_precise_se:
+            if consider_covariance:
                 se_diff = compute_precise_standard_error(df, coefs, pred_cat)
-                # This doesn't (yet) reproduce lme4 completely, so it's not default.
             else:
                 se_diff = weighted_se(m_prevwon_m - m_prevlost_m, weights=m_prevwon_c)
-                # This doesn't account for the covariance between regressors though.
 
             t_diff = m_diff / se_diff
             p_diff = 2 * (1 - t.cdf(np.abs(t_diff), len(m_prevlost_m)-1))  # two-tailed test
