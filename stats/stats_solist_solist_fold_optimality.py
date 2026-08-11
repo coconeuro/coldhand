@@ -1,35 +1,26 @@
 import os
-import socket
-from datetime import datetime
-
 import pandas as pd
+from datetime import datetime
 from pymer4.models import Lmer
 
-from coco_hothand.config import data_root_fold, lme4_optimizers
-from coco_hothand.figures.util.regression import export_regression_table, prepare_result
-from coco_hothand.util.stats_util.correct_dv import correct_dv
-
-if socket.gethostname() == 'kolja':
-    os.environ["R_LIBS"] = "/usr/local/lib/R/site-library"
-os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
+from coldhand.config import data_root_fold, lme4_optimizers
+from coldhand.figures.util.regression import export_regression_table, prepare_result
+from coldhand.util.stats_util.correct_dv import correct_dv
+from coldhand.util.stats_util.expand_predictors import expand_predictors
 
 condition = 'solist_solist'
-var_valid = 'valid_new_max3'
+var_valid = 'new_max3'
 dv = 'player_optimality_ratio'
-
-var_ranS = 'C(prev_cond)'
+var_ranS = 'prev_cond'
 tmax = 900
 cols = [
-    'subject',
-    dv.replace('_z', '') if dv.endswith('_z') else dv,
-    var_valid, 'tdiff_new_max3_av', 'prev_lost', 'prev_won', 'prev_fold',
+    'id',
+    'subject', dv, f'valid_{var_valid}', f'tdiff_{var_valid}_max', 'prev_lost', 'prev_won', 'prev_fold',
     'rule_kurze', 'game_type', 'cur_pos'
 ]
-path_df = os.path.join(data_root_fold, f'{condition}_os.parquet')
-df = pd.read_parquet(path_df, columns=cols, engine='fastparquet')
-print(f'Loading file {path_df}')
-
-df = df[df[var_valid] & (df.tdiff_new_max3_av < tmax)]
+df = pd.read_parquet(os.path.join(data_root_fold, f'{condition}_os.parquet'), columns=cols, engine='fastparquet')
+df = df[df[f'valid_{var_valid}'] & (df[f'tdiff_{var_valid}_max'] < tmax)]
+df[dv] *= 100
 df.loc[df.prev_fold, 'prev_cond'] = 'Fold'
 df.loc[df.prev_lost, 'prev_cond'] = 'Lost'
 df.loc[df.prev_won, 'prev_cond'] = 'Won'
@@ -42,15 +33,18 @@ regs = [
 ]
 patsy = f"{dv} ~ {' + '.join(regs)} + (1+{var_ranS}|subject)"
 
+print(f'N={len(df)}')
+print(f'av time between failure and successes = {df[f'tdiff_{var_valid}_max'].mean():.1f} seconds')
+
 filename = __file__.split('/')[-1].replace('.py', '.parquet')
 recompute = False
 if recompute:
-    print(f'N={len(df)}')
     # 'nlopt_bobyqa', 'nlopt_neldermead', 'nlminb', 'nmkbw', 'bobyqa', 'neldermead', 'lbfgsb'
     optimizer = 'nlopt_bobyqa'  # nlopt_bobyqa is the default optimizer!
-    model = Lmer(patsy, data=df[[dv, 'subject'] + [reg.replace('C(', '').replace(')', '') for reg in regs]])
+    cols = [dv, 'subject'] + expand_predictors(regs)
+    model = Lmer(patsy, data=df[cols])
 
-    print(f'[{datetime.now().strftime('%H:%M:%S')}] Performing Lmer analysis [{optimizer}]: {patsy}')
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] Performing Lmer analysis [{optimizer}]: {patsy}")
     model.fit(summary=False, control=lme4_optimizers[optimizer])
     print(f'\t[{datetime.now().strftime('%H:%M:%S')}] ... Lmer finished')
     result = prepare_result(model)
@@ -61,17 +55,16 @@ if recompute:
     result.to_parquet(os.path.join('data', filename))
 else:
     result = pd.read_parquet(os.path.join('data', filename))
-    print(f"N={result.attrs['nsamples']}")
 
-print(patsy)
 print(f'\nOptimizer: {result.attrs['optimizer']}')
-print(f"\nCorrelation matrix:\n{df[[dv] + [reg.replace('C(', '').replace(')', '') for reg in regs if reg != var_ranS]].corr()}")
+print(f"\nCorrelation matrix:\n{df[[dv] + [reg.replace('C(', '').replace(')', '') for reg in regs if reg != f'C({var_ranS})']].corr()}")
 
 ff_cor = correct_dv(df, dv, result)
 ff_cor.to_parquet(f"../data/figures/{__file__.split('/')[-1].replace('stats', 'prepare_figure').replace('.py', '_corrected.parquet')}")
 print('\nDependent variable:\n', ff_cor)
 
-export_regression_table(result, __file__)
+export_regression_table(result, __file__, print_google_doc_size=True, exact_p=True)
+print(patsy)
 
 print(f'[lost vs. fold] Effect lme4: {result.iloc[1]['Estimate']:.5f}  ||  Effect correction: {ff_cor.loc['prev_lost_cor', 'av'] - ff_cor.loc['prev_fold_cor', 'av'] :.5f}')
 print(f'[won vs. fold] Effect lme4: {result.iloc[2]['Estimate']:.5f}  ||  Effect correction: {ff_cor.loc['prev_won_cor', 'av'] - ff_cor.loc['prev_fold_cor', 'av'] :.5f}')

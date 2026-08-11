@@ -4,44 +4,50 @@ from datetime import datetime
 import pandas as pd
 from pymer4.models import Lmer
 
-from coco_hothand.config import data_root, lme4_optimizers
-from coco_hothand.figures.util.regression import export_regression_table, prepare_result
-from coco_hothand.util.stats_util.correct_dv import correct_dv
+from coldhand.config import data_root, lme4_optimizers
+from coldhand.figures.util.regression import export_regression_table, prepare_result
+from coldhand.util.stats_util.correct_dv import correct_dv
+from coldhand.util.stats_util.expand_predictors import expand_predictors
 
 condition = 'solist_all'
-var_valid = 'valid_new_max2'
+var_valid = 'new_max2'
 dv = 'score'
 var_ranS = 'prev_won'
-cols = ['id',
-    'subject',  dv, var_valid, 'tdiff_new_max2', 'prev_won',
-    'rule_kurze', 'game_type', 'cur_pos'
+tmax = 900
+cols = [
+    'id',
+    'subject', dv, f'valid_{var_valid}', f'tdiff_{var_valid}', 'prev_won',
+    'rule_kurze', 'cur_pos'
 ]
 df = pd.read_parquet(os.path.join(data_root, f'{condition}.parquet'), columns=cols, engine='fastparquet')
-df = df[df[var_valid] & (df.tdiff_new_max2 < 900)]
+df = df[df[f'valid_{var_valid}'] & (df[f'tdiff_{var_valid}'] < tmax)]
 
 regs = [
     'prev_won',
     'C(rule_kurze)',
-    # 'C(game_type)', # we explicitely do not want to keep game_type constant!
     'C(cur_pos)'
 ]
+patsy = f"{dv} ~ {' + '.join(regs)} + (1+{var_ranS}|subject)"
 
 print(f'N={len(df)}')
-print(f'av time between failure and successes = {df.tdiff_new_max2.mean():.1f} seconds')
+print(f'av time between failure and successes = {df[f'tdiff_{var_valid}'].mean():.1f} seconds')
 
 filename = __file__.split('/')[-1].replace('.py', '.parquet')
-reload = False
-if reload:
-    patsy = f"{dv} ~ {' + '.join(regs)} + (1+{var_ranS}|subject)"
+recompute = False
+if recompute:
     # 'nlopt_bobyqa', 'nlopt_neldermead', 'nlminb', 'nmkbw', 'bobyqa', 'neldermead', 'lbfgsb'
     optimizer = 'nlopt_bobyqa'  # nlopt_bobyqa is the default optimizer!
-    model = Lmer(patsy, data=df[[dv, 'subject'] + [reg.replace('C(', '').replace(')', '') for reg in regs]])
+    cols = [dv, 'subject'] + expand_predictors(regs)
+    model = Lmer(patsy, data=df[cols])
 
-    print(f'[{datetime.now().strftime('%H:%M:%S')}] Performing Lmer analysis [{optimizer}]: {patsy}')
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] Performing Lmer analysis [{optimizer}]: {patsy}")
     model.fit(summary=False, control=lme4_optimizers[optimizer])
     print(f'\t[{datetime.now().strftime('%H:%M:%S')}] ... Lmer finished')
     result = prepare_result(model)
     result.attrs['optimizer'] = optimizer
+    result.attrs['tmax'] = tmax
+    result.attrs['patsy'] = patsy
+    result.attrs['nsamples'] = len(df)
     result.to_parquet(os.path.join('data', filename))
 else:
     result = pd.read_parquet(os.path.join('data', filename))
@@ -53,6 +59,7 @@ ff_cor = correct_dv(df, dv, result)
 ff_cor.to_parquet(f"../data/figures/{__file__.split('/')[-1].replace('stats', 'prepare_figure').replace('.py', '_corrected.parquet')}")
 print('\nDependent variable:\n', ff_cor)
 
-export_regression_table(result, __file__)
+export_regression_table(result, __file__, print_google_doc_size=True, exact_p=True)
+print(patsy)
 
 print(f'Effect lme4: {result.iloc[1]['Estimate']:.5f}  ||  Effect correction: {ff_cor.loc['prev_won_cor', 'av'] - ff_cor.loc['prev_lost_cor', 'av'] :.5f}')
