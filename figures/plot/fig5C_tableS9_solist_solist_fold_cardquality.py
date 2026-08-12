@@ -6,8 +6,7 @@ from coldhand.figures.config import colors, errorbar_kw, errorbar_dot_kw, defaul
 from coldhand.figures.util.export import savefig
 from coldhand.figures.util.fontsize import set_fontsize
 
-ff = pd.read_parquet(f"../../data/figures/prepare_{__file__.split('/')[-1].replace('.py', '_corrected.parquet')}")
-ff[['av', 'se']] *= 100
+ff = pd.read_parquet(f"../../data/figures/table{__file__.split('_table')[1].replace('.py', '.parquet')}")
 
 var_lost = 'prev_lost_cor'
 var_won = 'prev_won_cor'
@@ -35,14 +34,17 @@ plt.text(1.5, y_pline, text_p, ha='center', va='center', fontsize=14, bbox=dict(
 
 plt.xticks([0, 1, 2], ['Post-\nsuccess', 'Post-\nneutral', 'Post-\nfailure'])
 plt.xlim(-0.5, 2.5)
-plt.ylim(11.5, 12.5)
+
 plt.text(-0.15, 1.055, 'Scope:', transform=plt.gca().transAxes, fontsize=11, fontweight='bold', color='#222',
          clip_on=False, bbox=dict(facecolor='#eee', ec='none', pad=3.25))
-plt.text(0.14, 1.055, 'all contracts', transform=plt.gca().transAxes, fontsize=11, color='#222',
+plt.text(0.13, 1.055, 'declared solo contracts', transform=plt.gca().transAxes, fontsize=11, color='#222',
          clip_on=False, bbox=dict(facecolor='#eee', ec='none', pad=3.25))
-plt.ylabel(f'p(Solo), %')
+
+plt.ylabel(f'Card quality   ', labelpad=17)
+plt.text(0.14, 0.55, '[projected points]    ', transform=plt.gcf().transFigure, fontsize=12, ha='center',
+         va='center', rotation=90)
 plt.grid(axis='y', color=colors['grid'])
-plt.text(0.02, 0.87, 'C', transform=plt.gcf().transFigure, fontsize=22)
+plt.text(0.02, 0.87, 'D', transform=plt.gcf().transFigure, fontsize=22)
 
 plt.gca().get_xticklabels()[0].set_transform(plt.gca().get_xticklabels()[0].get_transform() +
                                              ScaledTranslation(-0.07, 0, plt.gcf().dpi_scale_trans))

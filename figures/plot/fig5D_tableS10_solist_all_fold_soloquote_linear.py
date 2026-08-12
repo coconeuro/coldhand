@@ -1,5 +1,4 @@
 import matplotlib.pyplot as plt
-import numpy as np
 import pandas as pd
 from matplotlib.transforms import ScaledTranslation
 
@@ -7,7 +6,8 @@ from coldhand.figures.config import colors, errorbar_kw, errorbar_dot_kw, defaul
 from coldhand.figures.util.export import savefig
 from coldhand.figures.util.fontsize import set_fontsize
 
-ff = pd.read_parquet(f"../../data/figures/prepare_{__file__.split('/')[-1].replace('.py', '_corrected.parquet')}")
+ff = pd.read_parquet(f"../../data/figures/table{__file__.split('_table')[1].replace('.py', '.parquet')}")
+ff[['av', 'se']] *= 100
 
 var_lost = 'prev_lost_cor'
 var_won = 'prev_won_cor'
@@ -35,21 +35,19 @@ plt.text(1.5, y_pline, text_p, ha='center', va='center', fontsize=14, bbox=dict(
 
 plt.xticks([0, 1, 2], ['Post-\nsuccess', 'Post-\nneutral', 'Post-\nfailure'])
 plt.xlim(-0.5, 2.5)
-plt.ylim(97.855, 97.925)
-plt.yticks(np.arange(97.86, 97.925, 0.02))
-plt.text(-0.1, 1.055, 'Scope:', transform=plt.gca().transAxes, fontsize=11, fontweight='bold', color='#222',
+plt.ylim(11.5, 12.5)
+plt.text(-0.15, 1.055, 'Scope:', transform=plt.gca().transAxes, fontsize=11, fontweight='bold', color='#222',
          clip_on=False, bbox=dict(facecolor='#eee', ec='none', pad=3.25))
-plt.text(0.22, 1.055, 'all contracts', transform=plt.gca().transAxes, fontsize=11, color='#222',
+plt.text(0.14, 1.055, 'all contracts', transform=plt.gca().transAxes, fontsize=11, color='#222',
          clip_on=False, bbox=dict(facecolor='#eee', ec='none', pad=3.25))
-plt.ylabel(f'Gameplay performance       ', labelpad=17)
-plt.text(0.14, 0.55, '[optimality, %]    ', transform=plt.gcf().transFigure, fontsize=12, ha='center', va='center', rotation=90)
+plt.ylabel(f'p(Solo), %')
 plt.grid(axis='y', color=colors['grid'])
-plt.text(0.02, 0.87, 'F', transform=plt.gcf().transFigure, fontsize=22)
+plt.text(0.02, 0.87, 'C', transform=plt.gcf().transFigure, fontsize=22)
 
 plt.gca().get_xticklabels()[0].set_transform(plt.gca().get_xticklabels()[0].get_transform() +
-                                             ScaledTranslation(-0.08, 0, plt.gcf().dpi_scale_trans))
+                                             ScaledTranslation(-0.07, 0, plt.gcf().dpi_scale_trans))
 plt.gca().get_xticklabels()[1].set_transform(plt.gca().get_xticklabels()[1].get_transform() +
-                                             ScaledTranslation(0.03, 0, plt.gcf().dpi_scale_trans))
+                                             ScaledTranslation(-0.02, 0, plt.gcf().dpi_scale_trans))
 plt.gca().get_xticklabels()[2].set_transform(plt.gca().get_xticklabels()[2].get_transform() +
                                              ScaledTranslation(0.07, 0, plt.gcf().dpi_scale_trans))
 

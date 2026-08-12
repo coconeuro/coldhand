@@ -6,7 +6,7 @@ from coldhand.figures.config import colors, errorbar_kw, errorbar_dot_kw, defaul
 from coldhand.figures.util.export import savefig
 from coldhand.figures.util.fontsize import set_fontsize
 
-ff = pd.read_parquet(f"../../data/figures/prepare_{__file__.split('/')[-1].replace('.py', '_corrected.parquet')}")
+ff = pd.read_parquet(f"../../data/figures/table{__file__.split('_table')[1].replace('.py', '.parquet')}")
 
 var_lost = 'prev_lost_cor'
 var_won = 'prev_won_cor'
