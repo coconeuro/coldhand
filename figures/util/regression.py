@@ -40,7 +40,7 @@ def get_standardizer(df, dv, predictors):
     return standardizer
 
 
-def format_regression_table(result, predictor_map=None, standardizer=None, reorder_predictors=None, exact_p=False):
+def format_regression_table(result, predictor_map=None, standardizer=None, reorder_predictors=None, exact_p=False, include_df=False):
     """
     Format regression table
 
@@ -50,6 +50,7 @@ def format_regression_table(result, predictor_map=None, standardizer=None, reord
         standardizer (dict[str, float], optional): standardizer dictionary for the predictors
         reorder_predictors (dict[int, int], optional): position reorder dictionary for the predictors
         exact_p (bool, optional): set True to get p-values in scientific notation
+        include_df (bool, optional): set True to include degrees of freedom
 
     Returns:
         result_fm (pd.DataFrame): formated Pandas dataframe containing the regression table
@@ -78,6 +79,11 @@ def format_regression_table(result, predictor_map=None, standardizer=None, reord
         'P-val': 'p',
         'Sig': 'Sign.'
     }
+    if include_df:
+        items = list(cols.items())
+        items.insert(3, ('DF', 'DF'))
+        cols = dict(items)
+
     if standardizer is None:
         del cols['beta']
     else:
@@ -102,7 +108,7 @@ def format_regression_table(result, predictor_map=None, standardizer=None, reord
 
     return result_fmt
 
-def export_regression_table(result, filename, omit_intercept_stats=True, ci95_as_percent=False, reorder_predictors=None, standardizer=None, print_google_doc_size=False, exact_p=False):
+def export_regression_table(result, filename, omit_intercept_stats=True, ci95_as_percent=False, reorder_predictors=None, standardizer=None, print_google_doc_size=False, exact_p=False, include_df=False):
 
     if ci95_as_percent:
         print(f"\nConfidence interval for the difference:\nCI95 = [{100*result.iloc[1]['2.5_ci']:.3f}%; {100*result.iloc[1]['97.5_ci']:.3f}%]")
@@ -121,13 +127,13 @@ def export_regression_table(result, filename, omit_intercept_stats=True, ci95_as
     print(f"\nModel evidence:\nAIC = {result.attrs['AIC']:.5f}")
 
     coefs_f = format_regression_table(result, predictor_map=predictor_map,
-                                      reorder_predictors=reorder_predictors, standardizer=standardizer, exact_p=exact_p)
+                                      reorder_predictors=reorder_predictors, standardizer=standardizer, exact_p=exact_p, include_df=include_df)
     print('\nRegression table:\n', coefs_f[coefs_f.columns[1:]])
     # if omit_intercept_stats:
     #     for col in ('t', 'p', 'Sign.'):
     #         coefs_f.at['(Intercept)', col] = ''
-    coefs_styler = coefs_f.style.hide(axis="index").format(
-        dict(Estimate='{:.3f}', b='{:.3f}', SE='{:.3f}', t='{:}' if omit_intercept_stats else '{:.1f}')).map(lambda x: 'font-weight: bold', subset=[''])
+    fmt_dict = dict(Estimate='{:.3f}', b='{:.3f}', SE='{:.3f}', DF='{:.1f}', t='{:}' if omit_intercept_stats else '{:.1f}')
+    coefs_styler = coefs_f.style.hide(axis="index").format(fmt_dict).map(lambda x: 'font-weight: bold', subset=[''])
     path_fe = f"../figures/img/{filename.split('/')[-1].replace('.py', '.png')}"
     print(f'Figure saved to {os.path.abspath(path_fe)}')
     if omit_intercept_stats:
