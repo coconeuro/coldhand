@@ -59,7 +59,7 @@ print(f'\nOptimizer: {result.attrs['optimizer']}')
 print(f"\nCorrelation matrix:\n{df[[dv] + [reg.replace('C(', '').replace(')', '') for reg in regs if reg != f'C({var_ranS})']].corr()}")
 
 ff_cor = correct_dv(df, dv, result)
-ff_cor.to_parquet(f"../data/figures/{__file__.split('/')[-1].replace('stats', 'prepare_figure').replace('.py', '_corrected.parquet')}")
+ff_cor.to_parquet(f"../data/figures/{__file__.split('/')[-1].replace('stats_', '').replace('.py', '.parquet')}")
 print('\nDependent variable:\n', ff_cor)
 
 export_regression_table(result, __file__, ci95_as_percent=False, print_google_doc_size=True, exact_p=True, include_df=True)
