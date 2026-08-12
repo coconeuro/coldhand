@@ -55,6 +55,7 @@ def correct_dv(df, dv, coefs, correct_fe=True, correct_re=True, use_marginal_mea
         # we need to provide a lambda intermediary
         weighted_avg = lambda values, weights: np.average(values, weights=weights)
         marginal_mean = weighted_avg(*zip(*[[np.average((gb := df[df.eval(combo_string, engine='python')].groupby('subject')[dv]).mean(), weights=gb.count()), len(gb)] for combo_string in combo_strings]))
+        # marginal_mean = weighted_avg(*zip(*[[np.average((gb := df[df.eval(combo_string, engine='python')].groupby('subject')[f'{dv}_cor']).mean(), weights=gb.count()), len(gb)] for combo_string in combo_strings]))
         df[f'{dv}_cor'] += marginal_mean - df[f'{dv}_cor'].mean()
 
     if 'prev_won' in coefs.Estimate.index or 'prev_wonTRUE' in coefs.Estimate.index:
@@ -69,6 +70,17 @@ def correct_dv(df, dv, coefs, correct_fe=True, correct_re=True, use_marginal_mea
 
             # Compute p-values
             m_prevlost, m_prevwon = np.average(m_prevlost_m, weights=m_prevlost_c), np.average(m_prevwon_m, weights=m_prevwon_c)
+
+            if suffix == '_cor':
+                # Anchor the corrected condition means to the corrected grand mean, but force their
+                # differences to equal the mixed model’s fixed-effect contrasts
+                # (rather than differences of ordinary averaged residualized observations).
+                b_prevwon = coefs.loc['prev_wonTRUE' if 'prev_wonTRUE' in coefs.Estimate.index else 'prev_won', 'Estimate']
+                p_prevwon = (df.prev_won == levels[1]).mean()
+                base = df[f'{dv}{suffix}'].mean() - p_prevwon * b_prevwon
+                m_prevlost = base
+                m_prevwon = base + b_prevwon
+
             m_diff = m_prevwon - m_prevlost
             if consider_covariance:
                 se_diff = compute_precise_standard_error(df, coefs, pred_cat)
@@ -93,6 +105,23 @@ def correct_dv(df, dv, coefs, correct_fe=True, correct_re=True, use_marginal_mea
 
             # Compute p-values
             m_prevfold, m_prevlost, m_prevwon = np.average(m_prevfold_m, weights=m_prevfold_c), np.average(m_prevlost_m, weights=m_prevlost_c), np.average(m_prevwon_m, weights=m_prevwon_c)
+
+            if suffix == '_cor':
+                # Anchor the corrected condition means to the corrected grand mean, but force their
+                # differences to equal the mixed model’s fixed-effect contrasts
+                # (rather than differences of ordinary averaged residualized observations).
+                b_lost = coefs.loc['C(prev_cond)Lost', 'Estimate']
+                b_won = coefs.loc['C(prev_cond)Won', 'Estimate']
+                condition_weights = df.prev_cond.value_counts(normalize=True)
+                base = (
+                        df[f'{dv}{suffix}'].mean()
+                        - condition_weights.get('Lost', 0) * b_lost
+                        - condition_weights.get('Won', 0) * b_won
+                )
+                m_prevfold = base
+                m_prevlost = base + b_lost
+                m_prevwon = base + b_won
+
             m_diff_lost = m_prevlost - m_prevfold
             se_diff_lost = weighted_se(m_prevlost_m - m_prevfold_m, weights=m_prevlost_c)
             m_diff_won = m_prevwon - m_prevfold
@@ -117,14 +146,30 @@ def compute_precise_standard_error(df, coefs, pred_cat):
     X = np.hstack((np.ones((len(df), 1)), np.array(df[['prev_won'] + list(pred_cat)].values, float)))
     n, k = X.shape
     # Z = Random effect design matrix
+
     Z = csr_matrix(np.ones((n, 2), int))
+    # Z = csr_matrix(np.column_stack([
+    #     np.ones(len(df)),
+    #     df['prev_won'].astype(float).values,
+    # ]))
+
     # G = covariance matrix of the random effects
-    G = np.full((2, 2), np.nan)
-    G[0, 0] = coefs.attrs['ranef_var']['(Intercept)']
-    G[1, 1] = coefs.attrs['ranef_var']['prev_wonTRUE']
-    G[0, 1] = list(coefs.attrs['ranef_corr'].values())[0]
-    G[1, 0] = list(coefs.attrs['ranef_corr'].values())[0]
-    G = csr_matrix(G)
+
+    # G = np.full((2, 2), np.nan)
+    # G[0, 0] = coefs.attrs['ranef_var']['(Intercept)']
+    # G[1, 1] = coefs.attrs['ranef_var']['prev_wonTRUE']
+    # G[0, 1] = list(coefs.attrs['ranef_corr'].values())[0]
+    # G[1, 0] = list(coefs.attrs['ranef_corr'].values())[0]
+    # G = csr_matrix(G)
+
+    sd_intercept = coefs.attrs['ranef_var']['(Intercept)']
+    sd_slope = coefs.attrs['ranef_var']['prev_wonTRUE']
+    corr = list(coefs.attrs['ranef_corr'].values())[0]
+    G = np.array([
+        [sd_intercept ** 2, corr * sd_intercept * sd_slope],
+        [corr * sd_intercept * sd_slope, sd_slope ** 2],
+    ])
+
     # I = residual variance matrix
     I = diags(coefs.attrs['var_resid'] * np.ones(n, int), format='csr')
 

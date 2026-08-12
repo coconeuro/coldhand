@@ -1,0 +1,91 @@
+import os
+from datetime import datetime
+import socket
+
+import pandas as pd
+from pymer4.models import Lmer
+
+from coco_hothand.config import data_root_fold, lme4_optimizers
+from coco_hothand.figures.util.regression import export_regression_table, prepare_result
+from coco_hothand.util.stats_util.correct_dv import correct_dv
+from coco_hothand.util.stats_util.expand_predictors import expand_predictors
+
+if socket.gethostname() == 'kolja':
+    os.environ["R_LIBS"] = "/usr/local/lib/R/site-library"
+os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
+
+condition = 'solist_allplayed'
+var_valid = 'valid_new_max3'
+dv = 'performance'
+var_ranS = 'prev_cond'
+tmax = 900
+cols = [
+    'id',
+    'subject', var_valid, 'tdiff_new_max3_max', 'prev_lost', 'prev_won', 'prev_fold',
+    'rule_kurze', 'game_type', 'cur_pos',
+    'role', 'role_id',
+    'player_augen', 'regquality', 'regquality_sologegner_cards_best'
+]
+
+# gametype_dict = {0: 'ramsch', 1: 'rufspiel', 2: 'farbwenz', 3: 'geier', 4: 'wenz', 5: 'farbsolo'}
+# df = pd.read_parquet(os.path.join(data_root_fold, f'{condition}.parquet'), engine='fastparquet')
+# df.loc[~df.player_role.isna(), 'role'] = df[~df.player_role.isna()].apply(lambda x: f"{gametype_dict[x['game_type']]}_{x['player_role']}", axis=1)
+# roles = ('rufspiel_sauspieler', 'rusfspiel_mitspieler', 'rufspiel_sauspielgegner', 'farbwenz_solist', 'farbwenz_sologegner', 'geier_solist', 'geier_sologegner', 'wenz_solist', 'wenz_sologegner', 'farbsolo_solist', 'farbsolo_sologegner')
+# for i, role in enumerate(roles):
+#     df.loc[df.role == role, 'role_id'] = i
+# df.to_parquet(os.path.join(data_root_fold, f'{condition}.parquet'))
+
+
+df = pd.read_parquet(os.path.join(data_root_fold, f'{condition}.parquet'), columns=cols, engine='fastparquet')
+df = df[df[var_valid] & (df.tdiff_new_max3_max < tmax)]
+df['performance'] = df['player_augen'] - df['regquality']
+df['regquality_sologegner_cards_best'] -= df['regquality_sologegner_cards_best'].mean()
+df['regquality_sologegner_cards_best'] /= df['regquality_sologegner_cards_best'].std()
+df.loc[df.prev_fold, 'prev_cond'] = 'Fold'
+df.loc[df.prev_lost, 'prev_cond'] = 'Lost'
+df.loc[df.prev_won, 'prev_cond'] = 'Won'
+
+regs = [
+    'C(prev_cond)',
+    'C(rule_kurze)',
+    # 'C(game_type)',
+    'C(role_id)',
+    'C(cur_pos)'
+]
+
+print(f'N={len(df)}')
+print(f'av time between failure and successes = {df.tdiff_new_max3_max.mean():.1f} seconds')
+
+filename = __file__.split('/')[-1].replace('.py', '.parquet')
+recompute = True
+if recompute:
+    patsy = f"{dv} ~ {' + '.join(regs)} + (1+{var_ranS}|subject)"
+    # 'nlopt_bobyqa', 'nlopt_neldermead', 'nlminb', 'nmkbw', 'bobyqa', 'neldermead', 'lbfgsb'
+    optimizer = 'nlopt_bobyqa'  # nlopt_bobyqa is the default optimizer!
+    cols = [dv, 'subject'] + expand_predictors(regs)
+    model = Lmer(patsy, data=df[cols])
+
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] Performing Lmer analysis [{optimizer}]: {patsy}")
+    model.fit(summary=False, control=lme4_optimizers[optimizer])
+    print(f'\t[{datetime.now().strftime('%H:%M:%S')}] ... Lmer finished')
+    result = prepare_result(model)
+    result.attrs['optimizer'] = optimizer
+    result.attrs['tmax'] = tmax
+    result.attrs['patsy'] = patsy
+    result.attrs['nsamples'] = len(df)
+    result.to_parquet(os.path.join('data', filename))
+else:
+    result = pd.read_parquet(os.path.join('data', filename))
+    print(f"N={result.attrs['nsamples']}")
+
+print(f'\nOptimizer: {result.attrs['optimizer']}')
+print(f"\nCorrelation matrix:\n{df[[dv] + [reg.replace('C(', '').replace(')', '') for reg in regs if reg != f'C({var_ranS})']].corr()}")
+
+ff_cor = correct_dv(df, dv, result)
+ff_cor.to_parquet(f"../data/figures/{__file__.split('/')[-1].replace('stats', 'prepare_figure').replace('.py', '_corrected.parquet')}")
+print('\nDependent variable:\n', ff_cor)
+
+export_regression_table(result, __file__)
+
+print(f'[lost vs. fold] Effect lme4: {result.iloc[1]['Estimate']:.5f}  ||  Effect correction: {ff_cor.loc['prev_lost_cor', 'av'] - ff_cor.loc['prev_fold_cor', 'av'] :.5f}')
+print(f'[won vs. fold] Effect lme4: {result.iloc[2]['Estimate']:.5f}  ||  Effect correction: {ff_cor.loc['prev_won_cor', 'av'] - ff_cor.loc['prev_fold_cor', 'av'] :.5f}')
